@@ -1,0 +1,11 @@
+data/
+*.tar
+*.parquet
+*.blend
+*.obj
+*.ply
+*.glb
+*.exr
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
