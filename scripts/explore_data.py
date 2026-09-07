@@ -57,6 +57,9 @@ def print_filter_summary(df, kept, dropped):
 
     print("\nSurviving instances per model:")
     print(kept.groupby("model_name")["instance_id"].nunique().sort_values(ascending=False))
+
+
+def check_camera_paths(df):
     # Compare transform_matrix per frame_id across different instance_ids.
     # If cameras are shared, the same frame_id should have identical transform_matrix
     # regardless of instance_id.
