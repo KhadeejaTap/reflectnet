@@ -28,7 +28,35 @@ def print_summary(df):
     print(summary)
 
 
-def check_camera_paths(df):
+def filter_matte_nonmetal(df):
+    """
+    Filter to instances that are matte + non-metal, based on tags.json fields
+    flattened into the metadata parquet. Assumes columns 'glossiness' and
+    'metallic_hint' exist per-row (constant within an instance_id).
+    """
+    mask = (df["glossiness"] == "matte") & (df["metallic_hint"] == "non-metal")
+    kept = df[mask]
+    dropped = df[~mask]
+    return kept, dropped
+
+
+def print_filter_summary(df, kept, dropped):
+    total_instances = df["instance_id"].nunique()
+    kept_instances = kept["instance_id"].nunique()
+    dropped_instances = dropped["instance_id"].nunique()
+
+    total_models = df["model_name"].nunique()
+    kept_models = kept["model_name"].nunique()
+    dropped_models = set(df["model_name"].unique()) - set(kept["model_name"].unique())
+
+    print("\n--- Matte / Non-metal filter ---")
+    print(f"Instances: {kept_instances} kept / {dropped_instances} dropped / {total_instances} total")
+    print(f"Models with >=1 surviving instance: {kept_models} / {total_models}")
+    if dropped_models:
+        print(f"Models with ZERO surviving instances: {sorted(dropped_models)}")
+
+    print("\nSurviving instances per model:")
+    print(kept.groupby("model_name")["instance_id"].nunique().sort_values(ascending=False))
     # Compare transform_matrix per frame_id across different instance_ids.
     # If cameras are shared, the same frame_id should have identical transform_matrix
     # regardless of instance_id.
@@ -45,3 +73,6 @@ if __name__ == "__main__":
     df = load_metadata()
     print_summary(df)
     check_camera_paths(df)
+
+    kept, dropped = filter_matte_nonmetal(df)
+    print_filter_summary(df, kept, dropped)
