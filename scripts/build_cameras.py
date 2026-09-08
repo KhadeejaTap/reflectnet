@@ -5,6 +5,11 @@ For every surviving instance (matte, non-metal, no glass, not transparent),
 write a single cameras.json containing all 50 frames' camera info, already
 converted from NeRF/instant-ngp convention to Mitsuba convention.
 
+Camera data is read directly from each frame's camera.json inside the tar
+shard (via 'shard_path' + 'camera_member' from the metadata parquet), since
+parquet's own nested 'transform_matrix' column comes back as a ragged/object
+numpy array that doesn't convert cleanly.
+
 Output layout:
     mitsuba_scenes/instances/{instance_id}/cameras.json
 
@@ -12,12 +17,15 @@ Run this once as a batch step before rendering.
 """
 
 import json
+import tarfile
 import numpy as np
 from pathlib import Path
+from functools import lru_cache
 
 from explore_data import load_metadata, filter_matte_nonmetal
 
-OUTPUT_ROOT = Path(__file__).resolve().parent.parent / "mitsuba_scenes" / "instances"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OUTPUT_ROOT = REPO_ROOT / "mitsuba_scenes" / "instances"
 
 
 def nerf_to_mitsuba(transform_matrix):
@@ -28,42 +36,32 @@ def nerf_to_mitsuba(transform_matrix):
     """
     T = np.array(transform_matrix, dtype=np.float64)
     flip = np.diag([-1, 1, -1, 1]).astype(np.float64)
-    result = T @ flip
-    return np.asarray(result, dtype=np.float64)
+    return T @ flip
 
 
-def _to_native(obj):
-    """Recursively convert numpy/pandas objects to plain Python types for JSON."""
-    if isinstance(obj, dict):
-        return {k: _to_native(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_to_native(v) for v in obj]
-    if isinstance(obj, np.ndarray):
-        return _to_native(obj.tolist())
-    if isinstance(obj, (np.generic,)):
-        return obj.item()
-    if hasattr(obj, "item") and not isinstance(obj, (str, bytes)):
-        try:
-            return obj.item()
-        except Exception:
-            pass
-    if hasattr(obj, "tolist"):
-        try:
-            return _to_native(obj.tolist())
-        except Exception:
-            pass
-    return obj
+@lru_cache(maxsize=8)
+def _open_tar(shard_path: str):
+    """Cache open tarfile handles since many frames share the same shard."""
+    full_path = REPO_ROOT / shard_path
+    return tarfile.open(full_path)
+
+
+def read_camera_json(shard_path: str, camera_member: str):
+    tar = _open_tar(shard_path)
+    f = tar.extractfile(camera_member)
+    return json.load(f)
 
 
 def build_camera_json(df, instance_id):
     rows = df[df["instance_id"] == instance_id].sort_values("frame_id")
     cameras = []
     for _, row in rows.iterrows():
-        T_mitsuba = nerf_to_mitsuba(row["transform_matrix"])
+        raw = read_camera_json(row["shard_path"], row["camera_member"])
+        T_mitsuba = nerf_to_mitsuba(raw["transform_matrix"])
         cameras.append({
             "frame_id": int(row["frame_id"]),
             "transform_matrix": [[float(x) for x in r] for r in T_mitsuba],
-            "intrinsics": _to_native(row["intrinsics"]),
+            "intrinsics": raw["intrinsics"],
         })
     return cameras
 
@@ -75,20 +73,18 @@ def main():
     instance_ids = kept["instance_id"].unique()
     print(f"Building cameras.json for {len(instance_ids)} surviving instances...")
 
-    for instance_id in instance_ids:
+    for i, instance_id in enumerate(instance_ids):
         cameras = build_camera_json(kept, instance_id)
 
         out_dir = OUTPUT_ROOT / instance_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
         out_path = out_dir / "cameras.json"
-        try:
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(cameras, f, indent=2)
-        except TypeError as e:
-            print(f"Serialization failed for instance {instance_id}: {e}")
-            print("First camera entry:", cameras[0])
-            raise
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(cameras, f, indent=2)
+
+        if (i + 1) % 25 == 0:
+            print(f"  {i + 1}/{len(instance_ids)} done")
 
     print(f"Done. Wrote {len(instance_ids)} cameras.json files under {OUTPUT_ROOT}")
 
