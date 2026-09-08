@@ -11,6 +11,7 @@ The transient sensor settings follow the working CW-ToF scene configuration.
 import argparse
 import json
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
@@ -94,6 +95,72 @@ def build_tof_scene_dict(to_world_matrix, floor_ply, object_ply, object_reflecta
     }
 
 
+def _parse_vector(value):
+    return [float(part) for part in value.replace(",", " ").split()]
+
+
+def build_tof_scene_dict_from_xml(xml_path, to_world_matrix):
+    """Use XML shapes/materials and add the missing transient render components."""
+    xml_path = Path(xml_path).resolve()
+    root = ET.parse(xml_path).getroot()
+    bsdfs = {}
+
+    for bsdf in root.findall("bsdf"):
+        diffuse = bsdf.find(".//bsdf[@type='diffuse']")
+        material = diffuse if diffuse is not None else bsdf
+        reflectance = material.find("rgb[@name='reflectance']")
+        if reflectance is None:
+            reflectance = material.find("rgb")
+        if reflectance is None:
+            raise ValueError(f"XML material {bsdf.get('id')!r} has no RGB reflectance.")
+        bsdfs[bsdf.get("id")] = {
+            "type": "diffuse",
+            "reflectance": {
+                "type": "rgb",
+                "value": _parse_vector(reflectance.get("value", "")),
+            },
+        }
+
+    shapes = {}
+    for index, shape in enumerate(root.findall("shape")):
+        filename = shape.find("string[@name='filename']")
+        bsdf_ref = shape.find("ref[@name='bsdf']")
+        if filename is None or bsdf_ref is None:
+            raise ValueError(f"XML shape {shape.get('id')!r} is missing filename or BSDF ref.")
+        bsdf_id = bsdf_ref.get("id")
+        if bsdf_id not in bsdfs:
+            raise ValueError(f"XML shape references unknown BSDF {bsdf_id!r}.")
+        shape_key = shape.get("id") or shape.get("name") or f"shape_{index}"
+        shape_dict = {
+            "type": "ply",
+            "filename": str((xml_path.parent / filename.get("value")).resolve()),
+            "bsdf": bsdfs[bsdf_id],
+        }
+        face_normals = shape.find("boolean[@name='face_normals']")
+        if face_normals is not None:
+            shape_dict["face_normals"] = face_normals.get("value", "false").lower() == "true"
+        shapes[shape_key] = shape_dict
+
+    scene = build_tof_scene_dict(
+        to_world_matrix,
+        Path(shapes[next(iter(shapes))]["filename"]),
+        Path(shapes[list(shapes)[-1]]["filename"]),
+        0.0,
+    )
+    scene.pop("floor")
+    scene.pop("object")
+    scene.update(shapes)
+    return scene
+
+
+def find_scene_xml(ply_dir):
+    ply_dir = Path(ply_dir)
+    for candidate in (ply_dir.parent / "scene.xml", ply_dir.parent / "base.xml"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def get_reflectivity_for_instance(instance_id):
     df = load_metadata()
     kept, _dropped = filter_matte_nonmetal(df)
@@ -121,6 +188,7 @@ def render_instance(
     reproject=True,
     spp=None,
     amp_threshold=0.05,
+    scene_xml=None,
 ):
     cameras_path = INSTANCES_ROOT / instance_id / "cameras.json"
     with open(cameras_path, "r", encoding="utf-8") as f:
@@ -129,7 +197,6 @@ def render_instance(
     if limit is not None:
         cameras = cameras[:limit]
 
-    object_reflectance = get_reflectivity_for_instance(instance_id)
     output_dir = Path(output_dir)
     transient_dir = output_dir / "transient"
     steady_dir = output_dir / "steady"
@@ -138,9 +205,16 @@ def render_instance(
     steady_dir.mkdir(parents=True, exist_ok=True)
     frequency_dir.mkdir(parents=True, exist_ok=True)
 
-    scene_dict = build_tof_scene_dict(
-        cameras[0]["transform_matrix"], floor_ply, object_ply, object_reflectance
-    )
+    if scene_xml is not None:
+        scene_dict = build_tof_scene_dict_from_xml(
+            scene_xml, cameras[0]["transform_matrix"]
+        )
+        print(f"Loading geometry and materials from XML: {scene_xml}")
+    else:
+        object_reflectance = get_reflectivity_for_instance(instance_id)
+        scene_dict = build_tof_scene_dict(
+            cameras[0]["transform_matrix"], floor_ply, object_ply, object_reflectance
+        )
     scene = mi.load_dict(scene_dict)
     params = mi.traverse(scene)
     render_spp = spp or scene.sensors()[0].sampler().sample_count()
@@ -221,6 +295,12 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int)
     parser.add_argument("--spp", type=int)
     parser.add_argument(
+        "--scene-xml",
+        type=Path,
+        default=None,
+        help="Geometry/material XML fragment; auto-detected beside ply_dir when present.",
+    )
+    parser.add_argument(
         "--amp-threshold",
         type=float,
         default=0.002,
@@ -231,6 +311,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_dir = args.output_dir or REPO_ROOT / "tof" / args.instance_id
+    scene_xml = args.scene_xml or find_scene_xml(args.ply_dir)
     floor_ply = args.ply_dir / "bed_19_02_ground_plane.ply"
     object_ply = args.ply_dir / "bed_19_02.ply"
     render_instance(
@@ -243,4 +324,5 @@ if __name__ == "__main__":
         reproject=not args.no_reproject,
         spp=args.spp,
         amp_threshold=args.amp_threshold,
+        scene_xml=scene_xml,
     )
