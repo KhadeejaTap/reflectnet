@@ -33,16 +33,24 @@ def nerf_to_mitsuba(transform_matrix):
 
 def _to_native(obj):
     """Recursively convert numpy/pandas objects to plain Python types for JSON."""
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
     if isinstance(obj, dict):
         return {k: _to_native(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_to_native(v) for v in obj]
-    if isinstance(obj, (np.integer,)):
-        return int(obj)
-    if isinstance(obj, (np.floating,)):
-        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return _to_native(obj.tolist())
+    if isinstance(obj, (np.generic,)):
+        return obj.item()
+    if hasattr(obj, "item") and not isinstance(obj, (str, bytes)):
+        try:
+            return obj.item()
+        except Exception:
+            pass
+    if hasattr(obj, "tolist"):
+        try:
+            return _to_native(obj.tolist())
+        except Exception:
+            pass
     return obj
 
 
@@ -73,8 +81,13 @@ def main():
         out_dir.mkdir(parents=True, exist_ok=True)
 
         out_path = out_dir / "cameras.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(cameras, f, indent=2)
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(cameras, f, indent=2)
+        except TypeError as e:
+            print(f"Serialization failed for instance {instance_id}: {e}")
+            print("First camera entry:", cameras[0])
+            raise
 
     print(f"Done. Wrote {len(instance_ids)} cameras.json files under {OUTPUT_ROOT}")
 
