@@ -31,6 +31,21 @@ def nerf_to_mitsuba(transform_matrix):
     return T @ flip
 
 
+def _to_native(obj):
+    """Recursively convert numpy/pandas objects to plain Python types for JSON."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_native(v) for v in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    return obj
+
+
 def build_camera_json(df, instance_id):
     rows = df[df["instance_id"] == instance_id].sort_values("frame_id")
     cameras = []
@@ -39,7 +54,7 @@ def build_camera_json(df, instance_id):
         cameras.append({
             "frame_id": int(row["frame_id"]),
             "transform_matrix": T_mitsuba.tolist(),
-            "intrinsics": row["intrinsics"],
+            "intrinsics": _to_native(row["intrinsics"]),
         })
     return cameras
 
