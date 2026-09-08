@@ -3,7 +3,7 @@ build_cameras.py
 
 For every surviving instance (matte, non-metal, no glass, not transparent),
 write a single cameras.json containing all 50 frames' camera info, already
-converted from Blender's Z-up convention to Mitsuba's Y-up convention.
+converted for Mitsuba's camera-local axis convention.
 
 Camera data is read directly from each frame's camera.json inside the tar
 shard (via 'shard_path' + 'camera_member' from the metadata parquet), since
@@ -28,24 +28,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_ROOT = REPO_ROOT / "mitsuba_scenes" / "instances"
 
 
-def blender_zup_to_mitsuba(transform_matrix):
+def blender_camera_to_mitsuba(transform_matrix):
     """
-    Convert a Blender-native Z-up camera-to-world matrix to Mitsuba's
-    Y-up convention while preserving a right-handed coordinate system.
+    Convert a Blender camera-to-world matrix for Mitsuba while preserving
+    the shared scene world coordinates.
 
-    New axes are:
-      new_X = old_X
-      new_Y = old_Z
-      new_Z = -old_Y
+    The meshes remain in their original Blender Z-up world coordinate system,
+    so changing the world basis here would move the camera away from them.
+    Only the camera-local axes are adjusted: Blender looks along local -Z,
+    while Mitsuba's perspective sensor looks along local +Z.
     """
     T = np.array(transform_matrix, dtype=np.float64)
-    swap = np.array([
-        [1, 0, 0, 0],
-        [0, 0, 1, 0],
-        [0, -1, 0, 0],
-        [0, 0, 0, 1],
-    ], dtype=np.float64)
-    return swap @ T
+    camera_axis_flip = np.diag([-1, 1, -1, 1]).astype(np.float64)
+    return T @ camera_axis_flip
 
 
 @lru_cache(maxsize=8)
@@ -66,7 +61,7 @@ def build_camera_json(df, instance_id):
     cameras = []
     for _, row in rows.iterrows():
         raw = read_camera_json(row["shard_path"], row["camera_member"])
-        T_mitsuba = blender_zup_to_mitsuba(raw["transform_matrix"])
+        T_mitsuba = blender_camera_to_mitsuba(raw["transform_matrix"])
         cameras.append({
             "frame_id": int(row["frame_id"]),
             "transform_matrix": [[float(x) for x in r] for r in T_mitsuba],

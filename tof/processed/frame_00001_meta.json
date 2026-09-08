@@ -1,0 +1,15 @@
+{
+  "method": "beat",
+  "input_file": "/home/ktapkirw/reflectnet/tof/transient/frame_00001.npy",
+  "f1_hz": 71999998.21330407,
+  "f2_hz": 89999996.64981616,
+  "planar_correction": true,
+  "computed_unambiguous_range_m": 8.327569001114083,
+  "unambiguous_range_m": 8.327569001114083,
+  "user_max_depth": null,
+  "amp_threshold": 0.05,
+  "initial_valid_pixels": 138240,
+  "initial_valid_percent": 100.0,
+  "final_valid_pixels": 138240,
+  "final_valid_percent": 100.0
+}
