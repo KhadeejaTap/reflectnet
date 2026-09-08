@@ -210,7 +210,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Render one instance with transient ToF.")
     parser.add_argument("instance_id")
     parser.add_argument("ply_dir", type=Path)
-    parser.add_argument("output_dir", type=Path)
+    parser.add_argument(
+        "output_dir",
+        type=Path,
+        nargs="?",
+        default=REPO_ROOT / "tof",
+        help="Output directory (default: <repository>/tof).",
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--spp", type=int)
     parser.add_argument("--no-correlate", action="store_true")
