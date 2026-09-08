@@ -40,7 +40,7 @@ BIN_WIDTH_OPL = 0.032529563585
 
 SPOT_CUTOFF_ANGLE = 20.0
 SPOT_BEAM_WIDTH = 13.0
-SPOT_INTENSITY = 50.0
+SPOT_INTENSITY = 100.0
 
 
 def build_tof_scene_dict(to_world_matrix, floor_ply, object_ply, object_reflectance):
@@ -120,6 +120,7 @@ def render_instance(
     correlate=True,
     reproject=True,
     spp=None,
+    amp_threshold=0.05,
 ):
     cameras_path = INSTANCES_ROOT / instance_id / "cameras.json"
     with open(cameras_path, "r", encoding="utf-8") as f:
@@ -176,7 +177,7 @@ def render_instance(
                 input=str(transient_path),
                 out_dir=str(output_dir / "processed"),
                 method="beat",
-                amp_threshold=0.05,
+                amp_threshold=amp_threshold,
                 tol=0.002,
                 planar=True,
                 max_depth=None,
@@ -214,24 +215,32 @@ if __name__ == "__main__":
         "output_dir",
         type=Path,
         nargs="?",
-        default=REPO_ROOT / "tof",
-        help="Output directory (default: <repository>/tof).",
+        default=None,
+        help="Output directory (default: <repository>/tof/<instance_id>).",
     )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--spp", type=int)
+    parser.add_argument(
+        "--amp-threshold",
+        type=float,
+        default=0.002,
+        help="Correlation amplitude threshold ratio (default: 0.05).",
+    )
     parser.add_argument("--no-correlate", action="store_true")
     parser.add_argument("--no-reproject", action="store_true")
     args = parser.parse_args()
 
+    output_dir = args.output_dir or REPO_ROOT / "tof" / args.instance_id
     floor_ply = args.ply_dir / "bed_19_02_ground_plane.ply"
     object_ply = args.ply_dir / "bed_19_02.ply"
     render_instance(
         args.instance_id,
         floor_ply,
         object_ply,
-        args.output_dir,
+        output_dir,
         limit=args.limit,
         correlate=not args.no_correlate,
         reproject=not args.no_reproject,
         spp=args.spp,
+        amp_threshold=args.amp_threshold,
     )
