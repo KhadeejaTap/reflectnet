@@ -45,7 +45,8 @@ SPOT_INTENSITY = 200.0
 
 def build_tof_scene_dict(to_world_matrix, floor_ply, object_ply, object_reflectance):
     """Build the transient scene while preserving this renderer's camera setup."""
-    to_world = mi.Transform4f(np.asarray(to_world_matrix, dtype=np.float32))
+    # Scene dictionaries require a scalar transform during plugin construction.
+    to_world = mi.ScalarTransform4f(np.asarray(to_world_matrix, dtype=np.float32))
 
     return {
         "type": "scene",
