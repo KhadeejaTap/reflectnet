@@ -3,7 +3,7 @@ build_cameras.py
 
 For every surviving instance (matte, non-metal, no glass, not transparent),
 write a single cameras.json containing all 50 frames' camera info, already
-converted from NeRF/instant-ngp convention to Mitsuba convention.
+converted from Blender's Z-up convention to Mitsuba's Y-up convention.
 
 Camera data is read directly from each frame's camera.json inside the tar
 shard (via 'shard_path' + 'camera_member' from the metadata parquet), since
@@ -28,15 +28,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_ROOT = REPO_ROOT / "mitsuba_scenes" / "instances"
 
 
-def nerf_to_mitsuba(transform_matrix):
+def blender_zup_to_mitsuba(transform_matrix):
     """
-    Convert a NeRF/instant-ngp camera-to-world matrix (+X right, +Y up,
-    -Z forward) to Mitsuba convention (+X left, +Y up, +Z forward).
-    Flips X and Z axes.
+    Convert a Blender-native Z-up camera-to-world matrix to Mitsuba's
+    Y-up convention while preserving a right-handed coordinate system.
+
+    New axes are:
+      new_X = old_X
+      new_Y = old_Z
+      new_Z = -old_Y
     """
     T = np.array(transform_matrix, dtype=np.float64)
-    flip = np.diag([-1, 1, -1, 1]).astype(np.float64)
-    return T @ flip
+    swap = np.array([
+        [1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, -1, 0, 0],
+        [0, 0, 0, 1],
+    ], dtype=np.float64)
+    return swap @ T
 
 
 @lru_cache(maxsize=8)
@@ -57,7 +66,7 @@ def build_camera_json(df, instance_id):
     cameras = []
     for _, row in rows.iterrows():
         raw = read_camera_json(row["shard_path"], row["camera_member"])
-        T_mitsuba = nerf_to_mitsuba(raw["transform_matrix"])
+        T_mitsuba = blender_zup_to_mitsuba(raw["transform_matrix"])
         cameras.append({
             "frame_id": int(row["frame_id"]),
             "transform_matrix": [[float(x) for x in r] for r in T_mitsuba],
