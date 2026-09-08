@@ -40,7 +40,7 @@ BIN_WIDTH_OPL = 0.032529563585
 
 SPOT_CUTOFF_ANGLE = 20.0
 SPOT_BEAM_WIDTH = 13.0
-SPOT_INTENSITY = 200.0
+SPOT_INTENSITY = 50.0
 
 
 def build_tof_scene_dict(to_world_matrix, floor_ply, object_ply, object_reflectance):
@@ -176,7 +176,7 @@ def render_instance(
                 input=str(transient_path),
                 out_dir=str(output_dir / "processed"),
                 method="beat",
-                amp_threshold=0.002,
+                amp_threshold=0.05,
                 tol=0.002,
                 planar=True,
                 max_depth=None,
