@@ -26,9 +26,10 @@ def nerf_to_mitsuba(transform_matrix):
     -Z forward) to Mitsuba convention (+X left, +Y up, +Z forward).
     Flips X and Z axes.
     """
-    T = np.array(transform_matrix)
-    flip = np.diag([-1, 1, -1, 1])
-    return T @ flip
+    T = np.array(transform_matrix, dtype=np.float64)
+    flip = np.diag([-1, 1, -1, 1]).astype(np.float64)
+    result = T @ flip
+    return np.asarray(result, dtype=np.float64)
 
 
 def _to_native(obj):
@@ -61,7 +62,7 @@ def build_camera_json(df, instance_id):
         T_mitsuba = nerf_to_mitsuba(row["transform_matrix"])
         cameras.append({
             "frame_id": int(row["frame_id"]),
-            "transform_matrix": T_mitsuba.tolist(),
+            "transform_matrix": [[float(x) for x in r] for r in T_mitsuba],
             "intrinsics": _to_native(row["intrinsics"]),
         })
     return cameras
